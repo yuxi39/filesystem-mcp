@@ -19,7 +19,7 @@ Or build from source:
 ```bash
 git clone https://github.com/yuxi39/filesystem-mcp.git
 cd filesystem-mcp
-go build -o bin/filesystem.exe ./cmd/filesystem
+go build
 ```
 
 ### Configure in VS Code
