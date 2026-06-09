@@ -24,12 +24,21 @@ go build
 
 ### Configure in VS Code
 
+VS Code 通过 MCP 配置来连接服务器。配置方式有两种：
+
+#### Option 1: 用户级配置（推荐，全局生效）
+
+编辑文件：
+- Windows: `%APPDATA%\Code\User\mcp.json`
+- macOS: `~/Library/Application Support/Code/User/mcp.json`
+- Linux: `~/.config/Code/User/mcp.json`
+
 ```json
 {
   "mcp": {
     "servers": {
       "hello-sekai-fs": {
-        "command": "filesystem",
+        "command": "filesystem-mcp",
         "args": []
       }
     }
@@ -37,9 +46,67 @@ go build
 }
 ```
 
+#### Option 2: 项目级配置（仅当前项目生效）
+
+在项目根目录创建 `.vscode/mcp.json`：
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "hello-sekai-fs": {
+        "command": "filesystem-mcp",
+        "args": []
+      }
+    }
+  }
+}
+```
+
+#### Verify
+
+配置完成后重启 VS Code，在命令面板（`Ctrl+Shift+P`）搜索：
+- **"MCP: List Servers"** — 确认 `hello-sekai-fs` 状态为 ✅ Running
+- 或直接在聊天中问：*"List my workspace roots"*
+
 ---
 
-## Current Status — v0.0.1
+## Available Tools
+
+### roots/list
+List all workspace roots and active bypass rules. Called automatically when the agent needs to know available paths.
+
+### roots/add
+Register a new workspace root. The path must be absolute.
+
+```json
+{ "name": "my-project", "path": "D:\\Projects\\my-project" }
+```
+
+### roots/del
+Remove a registered root by name.
+
+```json
+{ "name": "my-project" }
+```
+
+### bypass/add
+Block access to a sub-path within a root. The agent will see the reason when denied.
+
+```json
+{ "path": "my-project:secret", "reason": "Contains sensitive credentials" }
+```
+
+### bypass/del
+Remove a bypass rule by its index (shown in `roots/list` output).
+
+```json
+{ "index": 0 }
+```
+
+---
+
+## Current Status — v0.0.2
 
 Roots management foundation.
 

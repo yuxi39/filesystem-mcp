@@ -17,7 +17,7 @@ func main() {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "filesystem",
 		Title:   "Hello Sekai Filesystem",
-		Version: "v0.0.1",
+		Version: "v0.0.2",
 		Icons: []mcp.Icon{
 			{
 				Source:   "data:image/png;base64," + base64.StdEncoding.EncodeToString(mcpIconData),

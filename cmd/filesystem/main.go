@@ -14,7 +14,7 @@ func main() {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "filesystem",
 		Title:   "Hello Sekai Filesystem",
-		Version: "v0.0.1",
+		Version: "v0.0.2",
 		Icons:   icons,
 	}, &mcp.ServerOptions{
 		Instructions: "A small filesystem MCP server for Hello Sekai.",
