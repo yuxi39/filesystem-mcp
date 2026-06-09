@@ -1,0 +1,26 @@
+# Binaries / 编译产物
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go workspace / Go 工作区
+go.work
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of `go coverage`
+*.out
+
+# OS / 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
