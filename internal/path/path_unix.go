@@ -23,3 +23,16 @@ func PathToURI(path string) string {
 	}
 	return "file://" + strings.Join(segments, "/")
 }
+
+func (pm *PathManager) Resolve(input string) *Path {
+	switch {
+	case strings.HasPrefix(input, "/"):
+
+	}
+	return nil
+}
+
+func (pm *PathManager) resolveAbsolute(input string) *Path {
+	// 先实现前缀树, 思路:使用hash算法映射到32位的数上,将这个数转成int32类型,然后使用map嵌套结构
+	return nil
+}

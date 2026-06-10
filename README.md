@@ -1,20 +1,18 @@
-# hellosekai filesystem MCP
+# filesystem-mcp
 
-**EN:** A lightweight, safe, and context-efficient filesystem MCP server for AI coding agents.
+一个为 AI 编程助手设计的轻量级 filesystem MCP server。
 
-**ZH:** 一个轻量、安全、上下文高效的 filesystem MCP 服务器，专为 AI 编程助手设计。
+当前项目还处在早期阶段。它已经跑通了 MCP server、工具注册、workspace root 管理和 bypass 规则的最小闭环；现在正在重构路径系统，为后续的 `fs.list`、`fs.read`、`fs.stat` 和安全写入打地基。
 
----
+> 现阶段重点不是“尽快读写文件”，而是先把路径解析、root 边界和前缀匹配做稳。
 
-## Quick Start
-
-### Install
+## 安装
 
 ```bash
 go install github.com/yuxi39/filesystem-mcp@latest
 ```
 
-Or build from source:
+或者从源码构建：
 
 ```bash
 git clone https://github.com/yuxi39/filesystem-mcp.git
@@ -22,22 +20,21 @@ cd filesystem-mcp
 go build
 ```
 
-### Configure in VS Code
+## VS Code 配置
 
-VS Code 通过 MCP 配置来连接服务器。配置方式有两种：
+用户级配置文件：
 
-#### Option 1: 用户级配置（推荐，全局生效）
-
-编辑文件：
 - Windows: `%APPDATA%\Code\User\mcp.json`
 - macOS: `~/Library/Application Support/Code/User/mcp.json`
 - Linux: `~/.config/Code/User/mcp.json`
 
+示例：
+
 ```json
 {
   "mcp": {
     "servers": {
-      "hello-sekai-fs": {
+      "filesystem": {
         "command": "filesystem-mcp",
         "args": []
       }
@@ -46,683 +43,259 @@ VS Code 通过 MCP 配置来连接服务器。配置方式有两种：
 }
 ```
 
-#### Option 2: 项目级配置（仅当前项目生效）
+项目级配置可以放在 `.vscode/mcp.json`。
 
-在项目根目录创建 `.vscode/mcp.json`：
+配置完成后，重启 VS Code 或当前 MCP session，然后检查 MCP server 是否处于 running 状态。
+
+## 当前状态
+
+### 已完成
+
+- MCP server 可以启动并被 VS Code / Codex 调用。
+- server metadata 已配置名称、版本和 icon。
+- 已实现 roots 管理工具。
+- 已实现 bypass 管理工具。
+- 已上传 GitHub。
+- 已打 tag。
+- 已验证 `go install` 安装链路。
+- `internal/path` 中开始重构路径系统。
+- 新增了目录前缀树 `prefixTree`，用于 root / bypass / ignore 的前缀匹配。
+- 已为 `prefixTree` 补充测试，覆盖插入、匹配、父子覆盖、删除和兄弟分支保留。
+
+### 当前正在重构
+
+路径系统正在从旧的 roots 逻辑中拆出来，目标是形成独立的 `PathManager`。
+
+预期职责：
+
+- 管理 roots。
+- 管理 bypass。
+- 管理 ignore。
+- 接收 MCP 输入路径。
+- 解析 namespace path，例如 `odds:hello/README.md`。
+- 解析绝对路径。
+- 解析 file URI。
+- 在 Windows 和 Linux/macOS 上统一转换为内部路径段。
+- 判断路径是否落在允许的 root 内。
+- 判断路径是否命中 bypass。
+- 为后续 `fs.read` / `fs.write` 提供安全边界。
+
+### 尚未完成
+
+- Windows 路径解析还在重构中。
+- Linux/macOS 路径解析还在重构中。
+- `PathManager.Resolve` 尚未完成。
+- `fs.stat` 尚未实现。
+- `fs.list` 尚未实现。
+- `fs.read` 尚未实现。
+- `fs.search_names` 尚未实现。
+- `fs.search_text` 尚未实现。
+- `fs.diff` / `fs.patch` 尚未实现。
+- memory 工具尚未实现。
+
+## 已实现工具
+
+### `roots/list`
+
+列出当前注册的 workspace roots 和 bypass 规则。
+
+### `roots/add`
+
+注册新的 workspace root。
+
+输入示例：
 
 ```json
 {
-  "mcp": {
-    "servers": {
-      "hello-sekai-fs": {
-        "command": "filesystem-mcp",
-        "args": []
-      }
-    }
-  }
+  "name": "odds",
+  "path": "F:\\ODDS&ENDS"
 }
 ```
 
-#### Verify
+### `roots/del`
 
-配置完成后重启 VS Code，在命令面板（`Ctrl+Shift+P`）搜索：
-- **"MCP: List Servers"** — 确认 `hello-sekai-fs` 状态为 ✅ Running
-- 或直接在聊天中问：*"List my workspace roots"*
+删除一个已注册的 workspace root。
 
----
-
-## Available Tools
-
-### roots/list
-List all workspace roots and active bypass rules. Called automatically when the agent needs to know available paths.
-
-### roots/add
-Register a new workspace root. The path must be absolute.
+输入示例：
 
 ```json
-{ "name": "my-project", "path": "D:\\Projects\\my-project" }
+{
+  "name": "odds"
+}
 ```
 
-### roots/del
-Remove a registered root by name.
+### `bypass/add`
+
+阻止 agent 访问某个 root 下的子路径。
+
+输入示例：
 
 ```json
-{ "name": "my-project" }
+{
+  "path": "odds:secret",
+  "reason": "Contains sensitive credentials"
+}
 ```
 
-### bypass/add
-Block access to a sub-path within a root. The agent will see the reason when denied.
+### `bypass/del`
+
+按 index 删除 bypass 规则。index 来自 `roots/list` 返回的 bypasses 数组。
+
+输入示例：
 
 ```json
-{ "path": "my-project:secret", "reason": "Contains sensitive credentials" }
+{
+  "index": 0
+}
 ```
 
-### bypass/del
-Remove a bypass rule by its index (shown in `roots/list` output).
+## 路径模型草案
 
-```json
-{ "index": 0 }
+用户或 MCP client 输入的路径可能有几种形式：
+
+- namespace path: `odds:hello/README.md`
+- Windows absolute path: `F:\ODDS&ENDS\hello\README.md`
+- Unix absolute path: `/etc/cron.d`
+- file URI: `file:///f%3A/ODDS%26ENDS/filesystem`
+
+内部路径系统会把路径转换成规范化后的 segment 列表。
+
+Windows 示例：
+
+```go
+[]string{"f:", "ODDS&ENDS", "filesystem"}
 ```
 
----
+Linux/macOS 示例：
 
-## Current Status — v0.0.2
-
-Roots management foundation.
-
-### Implemented Tools
-
-| Tool | Description |
-|---|---|
-| `roots/list` | List all workspace roots and bypass rules |
-| `roots/add` | Register a new workspace root |
-| `roots/del` | Remove a workspace root |
-| `bypass/add` | Block access to a sub-path within a root |
-| `bypass/del` | Remove a bypass rule |
-
-### Path Format
-
-```
-<rootName>:<relative/path>
+```go
+[]string{"etc", "cron.d"}
 ```
 
-Example: `odds:hello/README.md` resolves to `F:\ODDS&ENDS\hello\README.md`.
+`prefixTree` 只处理这种已经规范化后的 segment 列表。它不负责：
 
-### Session Integration
+- 清理 `.` / `..`
+- 大小写规范化
+- URI decode
+- 路径分隔符转换
+- symlink 解析
 
-On startup, `roots/list` automatically discovers VS Code workspace folders and merges them as initial roots. No manual registration needed for workspace roots.
+这些应该由上游路径解析层完成。
 
----
+## `prefixTree` 当前语义
 
-## Roadmap
+`prefixTree` 用于判断一个路径是否被某个已注册前缀覆盖。
 
-### v0.1.0 — File Reading
+支持：
 
-| Tool | Description |
-|---|---|
-| `fs.stat` | File or directory metadata with optional hash |
-| `fs.list` | List directory children (sorted, filtered) |
-| `fs.read` | Read file by line range with byte limit |
-| `fs.tree` | Recursive directory tree with depth limit |
-| `fs.search_names` | Substring search over file/directory names |
+- 插入 root / bypass / ignore 前缀。
+- 查询某个路径是否命中已注册前缀。
+- 插入父路径时替换已有子路径。
+- 已有父路径时拒绝插入子路径。
+- 删除某个前缀，并清理无用分支。
 
-### v0.2.0 — File Writing
+示例：
 
-| Tool | Description |
-|---|---|
-| `fs.diff` | Unified diff preview |
-| `fs.patch` | Safe range replacement with SHA-256 conflict check |
-| Dry-run mode | Preview before writing |
-| Conflict detection | Reject writes when file changed since last read |
+```go
+tree.InsertTree("odds", []string{"f:", "ODDS&ENDS"})
+tree.Match([]string{"f:", "ODDS&ENDS", "hello", "README.md"}) // true
+```
 
-### v0.3.0 — Memory & Recovery
+## 近期路线
 
-| Tool | Description |
-|---|---|
-| `memory.append` | Append structured notes |
-| `memory.read` | Read stored notes |
-| Session persistence | Survive server restart |
-| Error recovery | Revert to last known good state |
+### 1. 完成路径解析
 
----
+先完成 `internal/path`：
 
-## Design Principles
+- Windows absolute path -> segments
+- Unix absolute path -> segments
+- file URI -> native path -> segments
+- namespace path -> root + relative segments
+- root boundary check
+- bypass check
 
-1. **Safe** — Respect workspace boundaries, reject path traversal and subdirectory conflicts.
-2. **Structured** — Return JSON with clear schemas, not prose.
-3. **Concise** — Support line ranges, byte limits, truncation notices.
-4. **Auditable** — Support dry-run, diffs, and hash verification.
-5. **Recoverable** — Conflict detection prevents overwriting user edits.
+### 2. 把 roots / bypass 迁入 PathManager
 
----
+当前 roots 和 bypass 仍在旧结构中。下一步要让它们统一经过 `PathManager`。
+
+### 3. 实现只读文件工具
+
+优先级：
+
+```txt
+fs.stat
+fs.list
+fs.read
+```
+
+这三个完成后，Codex 就可以用这个 MCP 稳定地查看项目，而不是依赖 shell。
+
+### 4. 再实现搜索
+
+```txt
+fs.search_names
+fs.search_text
+```
+
+搜索工具会让 agent 更快找到相关代码。
+
+### 5. 最后进入安全写入
+
+```txt
+fs.diff
+fs.patch
+```
+
+写入必须建立在可靠的路径系统、hash 冲突检测和 diff 预览之上。
+
+## 设计原则
+
+- 安全优先：任何路径都必须先通过 root 边界检查。
+- 先只读，后写入。
+- 路径模型先稳定，再做文件操作。
+- 工具返回结构化 JSON，不返回大段自然语言。
+- 大文件读取必须支持限制和截断。
+- 写入必须支持 hash 校验和可审计 diff。
+- 不在 filesystem MCP 里执行 shell 命令。
+- 不在早期版本实现递归删除。
+
+## 当前反思
+
+这次重构看起来让功能进度变慢了，但它是在修正地基。
+
+filesystem MCP 最危险的部分不是 “文件读不出来”，而是：
+
+- 把不该暴露的路径暴露出来。
+- 误判 root 边界。
+- 被 `..` 或 symlink 绕过。
+- bypass 规则没有真正生效。
+- 写入时覆盖用户未读到的新改动。
+
+因此，当前阶段把 path system 拆出来是合理的。
+
+## 测试
+
+运行全部测试：
+
+```bash
+go test ./...
+```
+
+当前重点测试：
+
+```bash
+go test ./internal/path
+```
+
+`prefixTree` 已有测试覆盖：
+
+- 插入并匹配。
+- 父前缀匹配子路径。
+- 已有父前缀时拒绝插入子前缀。
+- 插入父前缀时替换子前缀。
+- 删除唯一节点。
+- 删除一个分支时保留兄弟分支。
 
 ## License
 
 MIT
-
-## Tool: `fs.stat`
-
-Return metadata for one file or directory.
-
-### Input
-
-```json
-{
-  "path": "odds:hello/README.md",
-  "hash": true
-}
-```
-
-### Output
-
-```json
-{
-  "path": "odds:hello/README.md",
-  "absolutePath": "F:\\ODDS&ENDS\\hello\\README.md",
-  "kind": "file",
-  "sizeBytes": 9123,
-  "modifiedAt": "2026-06-08T12:00:00+08:00",
-  "sha256": "..."
-}
-```
-
-### Why Codex Needs It
-
-Hashes allow conflict-safe writes.
-
-## Tool: `fs.read`
-
-Read a file, optionally by line range.
-
-### Input
-
-```json
-{
-  "path": "odds:hello/README.md",
-  "startLine": 1,
-  "endLine": 80,
-  "maxBytes": 40000
-}
-```
-
-### Output
-
-```json
-{
-  "path": "odds:hello/README.md",
-  "absolutePath": "F:\\ODDS&ENDS\\hello\\README.md",
-  "encoding": "utf-8",
-  "lineStart": 1,
-  "lineEnd": 80,
-  "totalLines": 240,
-  "sizeBytes": 9123,
-  "sha256": "...",
-  "content": "# hello sekai\n\n...",
-  "truncated": false
-}
-```
-
-### Behavior
-
-- Default to UTF-8.
-- Detect UTF-8 BOM.
-- Reject binary files unless `binaryMode` is explicitly requested later.
-- Include file hash.
-- Include total lines.
-- If truncated, say where and why.
-
-### Why Codex Needs It
-
-The agent often needs only a slice of a file, not the whole thing.
-
-## Tool: `fs.search_names`
-
-Search file and directory names.
-
-### Input
-
-```json
-{
-  "root": "odds:hello",
-  "query": "memory",
-  "kind": "any",
-  "limit": 50
-}
-```
-
-### Output
-
-```json
-{
-  "root": "odds:hello",
-  "query": "memory",
-  "matches": [
-    {
-      "path": "odds:hello/memory",
-      "kind": "directory"
-    },
-    {
-      "path": "odds:hello/src/memory/memoryStore.ts",
-      "kind": "file"
-    }
-  ],
-  "truncated": false
-}
-```
-
-### Behavior
-
-- Case-insensitive by default on Windows.
-- Respect ignore rules.
-- Prefer substring search first.
-- Regex can be added later.
-
-## Tool: `fs.search_text`
-
-Search text contents.
-
-### Input
-
-```json
-{
-  "root": "odds:hello",
-  "query": "module registry",
-  "mode": "literal",
-  "caseSensitive": false,
-  "contextLines": 2,
-  "limit": 50
-}
-```
-
-### Output
-
-```json
-{
-  "root": "odds:hello",
-  "query": "module registry",
-  "matches": [
-    {
-      "path": "odds:hello/README.md",
-      "line": 83,
-      "column": 5,
-      "preview": "The registry reads module manifests and answers:",
-      "before": [
-        "### Step 4: Build The Registry"
-      ],
-      "after": [
-        "",
-        "- What modules exist?"
-      ]
-    }
-  ],
-  "truncated": false
-}
-```
-
-### Behavior
-
-- Use Go implementation first.
-- Optionally use `rg` if available later.
-- Skip binary files.
-- Respect ignore rules.
-- Limit per-file matches to avoid flooding.
-
-### Why Codex Needs It
-
-This is one of the highest-value tools. It lets the agent locate definitions, TODOs, duplicated logic, and related files quickly.
-
-## Tool: `fs.diff`
-
-Preview a proposed full-file replacement or patch.
-
-### Input: Full Replacement
-
-```json
-{
-  "path": "odds:hello/README.md",
-  "expectedSha256": "...",
-  "newContent": "# new content\n"
-}
-```
-
-### Input: Range Replacement
-
-```json
-{
-  "path": "odds:hello/README.md",
-  "expectedSha256": "...",
-  "replace": {
-    "startLine": 10,
-    "endLine": 20,
-    "content": "replacement\n"
-  }
-}
-```
-
-### Output
-
-```json
-{
-  "path": "odds:hello/README.md",
-  "ok": true,
-  "changed": true,
-  "oldSha256": "...",
-  "newSha256": "...",
-  "diff": "--- README.md\n+++ README.md\n..."
-}
-```
-
-### Why Codex Needs It
-
-The agent can show or inspect the change before applying it.
-
-## Tool: `fs.patch`
-
-Apply a scoped edit.
-
-### Input: Create File
-
-```json
-{
-  "op": "create",
-  "path": "odds:hello/modules/hello.sekai/module.json",
-  "content": "{\n  \"name\": \"hello.sekai\"\n}\n",
-  "createParents": true,
-  "overwrite": false
-}
-```
-
-### Input: Replace Range
-
-```json
-{
-  "op": "replace_range",
-  "path": "odds:hello/README.md",
-  "expectedSha256": "...",
-  "startLine": 10,
-  "endLine": 20,
-  "content": "replacement\n"
-}
-```
-
-### Input: Apply Unified Diff
-
-```json
-{
-  "op": "unified_diff",
-  "patch": "*** Begin Patch\n*** Update File: hello/README.md\n@@\n-old\n+new\n*** End Patch\n"
-}
-```
-
-### Output
-
-```json
-{
-  "ok": true,
-  "changedFiles": [
-    {
-      "path": "odds:hello/README.md",
-      "oldSha256": "...",
-      "newSha256": "...",
-      "diff": "--- README.md\n+++ README.md\n..."
-    }
-  ]
-}
-```
-
-### Required Safety
-
-- Reject writes outside roots.
-- Reject overwrite if `overwrite` is false.
-- Reject update if `expectedSha256` does not match.
-- Return a conflict with current hash and current modified time.
-- Preserve line endings if possible.
-- Use atomic write: write temp file, fsync if practical, then rename.
-
-### Why Codex Needs It
-
-This is the main editing tool. The most important property is not raw power. The most important property is that failed edits are understandable and recoverable.
-
-## Tool: `memory.append`
-
-Append a structured memory note to a known memory file.
-
-This is separate from generic file editing because project memory should be easy and safe to update.
-
-### Input
-
-```json
-{
-  "root": "odds:hello",
-  "kind": "build-log",
-  "title": "Created filesystem MCP design draft",
-  "body": "Wrote the first design for a Go MCP server focused on safe filesystem collaboration.",
-  "time": "2026-06-08T12:00:00+08:00"
-}
-```
-
-### Output
-
-```json
-{
-  "ok": true,
-  "path": "odds:hello/memory/build-log.md",
-  "appendedBytes": 164,
-  "newSha256": "..."
-}
-```
-
-### Supported Kinds
-
-```txt
-vision
-architecture
-decision
-question
-build-log
-module-intent
-module-interface
-module-changelog
-module-run
-```
-
-### Behavior
-
-For project-level memory:
-
-```txt
-memory/vision.md
-memory/architecture.md
-memory/decisions.md
-memory/questions.md
-memory/build-log.md
-```
-
-For module-level memory, require `moduleName`.
-
-```txt
-modules/<moduleName>/memory/intent.md
-modules/<moduleName>/memory/interface.md
-modules/<moduleName>/memory/changelog.md
-modules/<moduleName>/memory/runs.jsonl
-```
-
-### Why Codex Needs It
-
-If memory writing is easy, the agent can keep the software's design history alive while coding.
-
-## Error Model
-
-All tools should return errors in a structured format.
-
-```json
-{
-  "ok": false,
-  "error": {
-    "code": "PATH_OUTSIDE_ROOT",
-    "message": "Path resolves outside configured workspace root.",
-    "path": "odds:../secret.txt",
-    "recoverable": true
-  }
-}
-```
-
-Recommended error codes:
-
-```txt
-PATH_OUTSIDE_ROOT
-PATH_NOT_FOUND
-PATH_IS_DIRECTORY
-PATH_IS_FILE
-PERMISSION_DENIED
-FILE_TOO_LARGE
-BINARY_FILE
-INVALID_ENCODING
-HASH_MISMATCH
-PATCH_CONFLICT
-INVALID_PATCH
-LIMIT_EXCEEDED
-IGNORED_PATH
-UNKNOWN_ROOT
-INVALID_ARGUMENT
-INTERNAL_ERROR
-```
-
-## Ignore Rules
-
-Default ignored names:
-
-```txt
-.git
-node_modules
-dist
-build
-.next
-.turbo
-target
-bin
-obj
-coverage
-.venv
-__pycache__
-```
-
-The MCP should also read `.gitignore` later, but this is not required for Milestone 1.
-
-## Security Rules
-
-Minimum safety rules:
-
-- Resolve all paths with `filepath.Clean`.
-- Convert relative paths to absolute paths under a known root.
-- Resolve symlinks before allowing writes.
-- Reject writes that escape the root after symlink resolution.
-- Do not expose arbitrary environment variables.
-- Do not run shell commands in this MCP.
-- Do not delete recursively in Milestone 1.
-- Do not implement move or rename in Milestone 1.
-
-This MCP is filesystem-only. Shell execution should be a separate tool with stricter approval rules.
-
-## Go Package Layout
-
-Suggested layout:
-
-```txt
-filesystem/
-  README.md
-  go.mod
-  cmd/
-    hellosekai-fs-mcp/
-      main.go
-  internal/
-    config/
-      config.go
-    mcp/
-      server.go
-      tools.go
-    workspace/
-      roots.go
-      path.go
-      ignore.go
-    fsops/
-      list.go
-      tree.go
-      stat.go
-      read.go
-      search.go
-      diff.go
-      patch.go
-    memory/
-      append.go
-    text/
-      encoding.go
-      lines.go
-      hash.go
-      unified_diff.go
-```
-
-## Implementation Phases
-
-### Phase 1: Read-Only Core
-
-Implement:
-
-- `fs.roots`
-- `fs.list`
-- `fs.tree`
-- `fs.stat`
-- `fs.read`
-- `fs.search_names`
-- `fs.search_text`
-
-This phase is already useful.
-
-### Phase 2: Safe Writes
-
-Implement:
-
-- `fs.diff`
-- `fs.patch` with `create`
-- `fs.patch` with `replace_range`
-
-Require `expectedSha256` for modifying existing files.
-
-### Phase 3: Memory Convenience
-
-Implement:
-
-- `memory.append`
-
-This lets the agent update project memory without hand-editing Markdown every time.
-
-### Phase 4: Better Editing
-
-Add:
-
-- unified diff patching
-- multi-file patch transaction
-- format-preserving line endings
-- `.gitignore` support
-- file summaries
-
-## What Not To Build Yet
-
-Do not build these in the first version:
-
-- recursive delete
-- arbitrary shell execution
-- package manager execution
-- Git commands
-- binary file editing
-- file watching
-- background indexing
-- vector search
-- web search
-
-These can become separate MCP servers later.
-
-## Best First Implementation Target
-
-Build this first:
-
-```txt
-fs.roots
-fs.list
-fs.read
-fs.search_text
-fs.patch(create)
-fs.patch(replace_range)
-```
-
-With only those six capabilities, Codex can already:
-
-- inspect a project
-- read the relevant files
-- find references
-- create new files
-- make conflict-safe edits
-- explain what changed
-
-That is the smallest filesystem MCP worth having.
-

@@ -7,7 +7,6 @@ import (
 	"log"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/yuxi39/filesystem-mcp/filesystem"
 )
 
 //go:embed filesystem.png
@@ -30,11 +29,11 @@ func main() {
 		Instructions: "A small filesystem MCP server for Hello Sekai.",
 	})
 
-	mcp.AddTool(server, filesystem.ToolRootsList, filesystem.HandlerRootsList)
-	mcp.AddTool(server, filesystem.ToolRootsAdd, filesystem.HandlerRootsAdd)
-	mcp.AddTool(server, filesystem.ToolRootsDel, filesystem.HandlerRootsDel)
-	mcp.AddTool(server, filesystem.ToolBypassAdd, filesystem.HandlerBypassAdd)
-	mcp.AddTool(server, filesystem.ToolBypassDel, filesystem.HandlerBypassDel)
+	// mcp.AddTool(server, filesystem.ToolRootsList, filesystem.HandlerRootsList)
+	// mcp.AddTool(server, filesystem.ToolRootsAdd, filesystem.HandlerRootsAdd)
+	// mcp.AddTool(server, filesystem.ToolRootsDel, filesystem.HandlerRootsDel)
+	// mcp.AddTool(server, filesystem.ToolBypassAdd, filesystem.HandlerBypassAdd)
+	// mcp.AddTool(server, filesystem.ToolBypassDel, filesystem.HandlerBypassDel)
 
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("server failed: %v", err)
