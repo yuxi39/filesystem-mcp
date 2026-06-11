@@ -8,18 +8,15 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 // This Go MCP SDK (v1.6.1) uses NDJSON (newline-delimited JSON), NOT Content-Length headers.
 // Each JSON-RPC message is a single line terminated by '\n'.
 
 func main() {
-	serverPath := "bin/fs.exe"
-	if _, err := os.Stat(serverPath); os.IsNotExist(err) {
-		serverPath = "../../bin/fs.exe"
-	}
-
-	cmd := exec.Command(serverPath)
+	cmd := serverCommand()
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -59,58 +56,73 @@ func main() {
 	sendMsg(stdin, 2, "tools/list", map[string]any{})
 	recvMsg(stdout, stdin, "tools/list response")
 
-	// --- 4. roots/add: register a root ---
+	// --- 4. path/roots/add: register a root ---
 	sendMsg(stdin, 3, "tools/call", map[string]any{
-		"name": "roots/add",
+		"name": "path/roots/add",
 		"arguments": map[string]any{
 			"name": "odds",
 			"path": `F:\ODDS&ENDS`,
 		},
 	})
-	recvMsg(stdout, stdin, "roots/add response")
+	recvMsg(stdout, stdin, "path/roots/add response")
 
-	// --- 5. roots/list: see all roots (should show 'odds') ---
+	// --- 5. path/list: see all roots (should show 'odds') ---
 	sendMsg(stdin, 4, "tools/call", map[string]any{
-		"name":      "roots/list",
+		"name":      "path/list",
 		"arguments": map[string]any{},
 	})
-	recvMsg(stdout, stdin, "roots/list (after add) response")
+	recvMsg(stdout, stdin, "path/list (after add) response")
 
-	// --- 6. bypass/add: block a sub-path ---
+	// --- 6. path/bypass/add: block a sub-path ---
 	sendMsg(stdin, 5, "tools/call", map[string]any{
-		"name": "bypass/add",
+		"name": "path/bypass/add",
 		"arguments": map[string]any{
 			"path":   "odds:secret",
 			"reason": "Sensitive directory",
 		},
 	})
-	recvMsg(stdout, stdin, "bypass/add response")
+	recvMsg(stdout, stdin, "path/bypass/add response")
 
-	// --- 7. roots/list: see roots + bypasses ---
+	// --- 7. path/list: see roots + bypasses ---
 	sendMsg(stdin, 6, "tools/call", map[string]any{
-		"name":      "roots/list",
+		"name":      "path/list",
 		"arguments": map[string]any{},
 	})
-	recvMsg(stdout, stdin, "roots/list (with bypass) response")
+	recvMsg(stdout, stdin, "path/list (with bypass) response")
 
-	// --- 8. roots/del: remove the root ---
+	// --- 8. path/roots/del: remove the root ---
 	sendMsg(stdin, 7, "tools/call", map[string]any{
-		"name": "roots/del",
+		"name": "path/roots/del",
 		"arguments": map[string]any{
 			"name": "odds",
 		},
 	})
-	recvMsg(stdout, stdin, "roots/del response")
+	recvMsg(stdout, stdin, "path/roots/del response")
 
-	// --- 9. roots/list: confirm empty ---
+	// --- 9. path/list: confirm empty ---
 	sendMsg(stdin, 8, "tools/call", map[string]any{
-		"name":      "roots/list",
+		"name":      "path/list",
 		"arguments": map[string]any{},
 	})
-	recvMsg(stdout, stdin, "roots/list (after del) response")
+	recvMsg(stdout, stdin, "path/list (after del) response")
 
 	fmt.Println()
 	fmt.Println("=== Done ===")
+}
+
+func serverCommand() *exec.Cmd {
+	if custom := os.Getenv("FILESYSTEM_MCP_SERVER"); custom != "" {
+		parts := strings.Fields(custom)
+		if len(parts) == 1 {
+			return exec.Command(parts[0])
+		}
+		return exec.Command(parts[0], parts[1:]...)
+	}
+	cmd := exec.Command("go", "run", ".")
+	if wd, err := os.Getwd(); err == nil && filepath.Base(wd) == "mockclient" {
+		cmd.Dir = filepath.Join(wd, "..", "..")
+	}
+	return cmd
 }
 
 // sendMsg writes a JSON-RPC request as a single NDJSON line.

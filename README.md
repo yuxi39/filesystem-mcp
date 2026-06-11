@@ -1,10 +1,34 @@
 # filesystem-mcp
 
-一个为 AI 编程助手设计的轻量级 filesystem MCP server。
+一个为 AI 编程助手设计的 filesystem MCP server。
 
-当前项目还处在早期阶段。它已经跑通了 MCP server、工具注册、workspace root 管理和 bypass 规则的最小闭环；现在正在重构路径系统，为后续的 `fs.list`、`fs.read`、`fs.stat` 和安全写入打地基。
+项目目前处于验证阶段。目标不是马上做出一个功能很多的文件管理器，而是先把路径模型、root 边界、bypass 规则和 MCP 工具契约跑通。现在很多代码还会继续改版，这是正常状态：越实践，边界会越清楚，属于人的设计判断也会越来越多。
 
-> 现阶段重点不是“尽快读写文件”，而是先把路径解析、root 边界和前缀匹配做稳。
+## 当前结论
+
+filesystem-mcp 接收的是**明确的文件系统路径**，不是 shell 表达式。
+
+支持方向：
+
+- namespace path: `odds:README.md`
+- Windows absolute path: `F:\ODDS&ENDS\hello`
+- Windows slash path: `F:/ODDS&ENDS/hello`
+- Windows UNC path: `\\wsl$\Ubuntu\home\user`
+- Unix absolute path: `/etc/cron.d`
+- file URI: `file:///f%3A/ODDS%26ENDS/hello%20world`
+- explicit relative path: `./README.md` 或 `.\README.md`
+
+不支持方向：
+
+- `~`
+- `$HOME`
+- `$env:USERPROFILE`
+- `%USERPROFILE%`
+- `$PATH` / `%PATH%`
+- `$(...)`
+- glob，比如 `*.go`
+
+这些表达式应该由 agent 或用户先解析成明确路径，再传给 filesystem-mcp。
 
 ## 安装
 
@@ -12,15 +36,15 @@
 go install github.com/yuxi39/filesystem-mcp@latest
 ```
 
-或者从源码构建：
+从源码运行：
 
 ```bash
 git clone https://github.com/yuxi39/filesystem-mcp.git
 cd filesystem-mcp
-go build
+go run .
 ```
 
-## VS Code 配置
+## VS Code MCP 配置
 
 用户级配置文件：
 
@@ -43,65 +67,33 @@ go build
 }
 ```
 
-项目级配置可以放在 `.vscode/mcp.json`。
+开发时也可以直接指向源码：
 
-配置完成后，重启 VS Code 或当前 MCP session，然后检查 MCP server 是否处于 running 状态。
-
-## 当前状态
-
-### 已完成
-
-- MCP server 可以启动并被 VS Code / Codex 调用。
-- server metadata 已配置名称、版本和 icon。
-- 已实现 roots 管理工具。
-- 已实现 bypass 管理工具。
-- 已上传 GitHub。
-- 已打 tag。
-- 已验证 `go install` 安装链路。
-- `internal/path` 中开始重构路径系统。
-- 新增了目录前缀树 `prefixTree`，用于 root / bypass / ignore 的前缀匹配。
-- 已为 `prefixTree` 补充测试，覆盖插入、匹配、父子覆盖、删除和兄弟分支保留。
-
-### 当前正在重构
-
-路径系统正在从旧的 roots 逻辑中拆出来，目标是形成独立的 `PathManager`。
-
-预期职责：
-
-- 管理 roots。
-- 管理 bypass。
-- 管理 ignore。
-- 接收 MCP 输入路径。
-- 解析 namespace path，例如 `odds:hello/README.md`。
-- 解析绝对路径。
-- 解析 file URI。
-- 在 Windows 和 Linux/macOS 上统一转换为内部路径段。
-- 判断路径是否落在允许的 root 内。
-- 判断路径是否命中 bypass。
-- 为后续 `fs.read` / `fs.write` 提供安全边界。
-
-### 尚未完成
-
-- Windows 路径解析还在重构中。
-- Linux/macOS 路径解析还在重构中。
-- `PathManager.Resolve` 尚未完成。
-- `fs.stat` 尚未实现。
-- `fs.list` 尚未实现。
-- `fs.read` 尚未实现。
-- `fs.search_names` 尚未实现。
-- `fs.search_text` 尚未实现。
-- `fs.diff` / `fs.patch` 尚未实现。
-- memory 工具尚未实现。
+```json
+{
+  "mcp": {
+    "servers": {
+      "filesystem": {
+        "command": "go",
+        "args": ["run", "."],
+        "cwd": "F:\\ODDS&ENDS\\filesystem"
+      }
+    }
+  }
+}
+```
 
 ## 已实现工具
 
-### `roots/list`
+### `path/list`
 
-列出当前注册的 workspace roots 和 bypass 规则。
+列出当前注册的 roots 和 bypass rules。
 
-### `roots/add`
+输出里会包含给 agent 的路径规范提醒，例如不要把 `$HOME`、`%USERPROFILE%`、`*.go` 直接传给 filesystem-mcp。
 
-注册新的 workspace root。
+### `path/roots/add`
+
+注册一个 root。
 
 输入示例：
 
@@ -112,9 +104,17 @@ go build
 }
 ```
 
-### `roots/del`
+规则：
 
-删除一个已注册的 workspace root。
+- `name` 是 namespace。
+- namespace 冲突时，新 root 覆盖旧 root。
+- root path 必须是明确的绝对路径或 file URI。
+- 不接受 shell 表达式。
+- 如果新 root 覆盖已有子 root，会移除被覆盖的 namespace。
+
+### `path/roots/del`
+
+删除一个 root，并删除它关联的 bypass rules。
 
 输入示例：
 
@@ -124,9 +124,9 @@ go build
 }
 ```
 
-### `bypass/add`
+### `path/bypass/add`
 
-阻止 agent 访问某个 root 下的子路径。
+添加 bypass rule，阻止 agent 访问某个 root 下的子路径。
 
 输入示例：
 
@@ -137,9 +137,9 @@ go build
 }
 ```
 
-### `bypass/del`
+### `path/bypass/del`
 
-按 index 删除 bypass 规则。index 来自 `roots/list` 返回的 bypasses 数组。
+按 index 删除 bypass rule。index 来自 `path/list`。
 
 输入示例：
 
@@ -149,129 +149,128 @@ go build
 }
 ```
 
-## 路径模型草案
+## 当前内部结构
 
-用户或 MCP client 输入的路径可能有几种形式：
+### `internal/innerpath`
 
-- namespace path: `odds:hello/README.md`
-- Windows absolute path: `F:\ODDS&ENDS\hello\README.md`
-- Unix absolute path: `/etc/cron.d`
-- file URI: `file:///f%3A/ODDS%26ENDS/filesystem`
+负责把用户输入路径解析成平台无关的内部路径。
 
-内部路径系统会把路径转换成规范化后的 segment 列表。
-
-Windows 示例：
+核心输出：
 
 ```go
-[]string{"f:", "ODDS&ENDS", "filesystem"}
+type Path struct {
+    Kind      PathKind
+    Namespace string
+    Segments  []string
+}
 ```
-
-Linux/macOS 示例：
-
-```go
-[]string{"etc", "cron.d"}
-```
-
-`prefixTree` 只处理这种已经规范化后的 segment 列表。它不负责：
-
-- 清理 `.` / `..`
-- 大小写规范化
-- URI decode
-- 路径分隔符转换
-- symlink 解析
-
-这些应该由上游路径解析层完成。
-
-## `prefixTree` 当前语义
-
-`prefixTree` 用于判断一个路径是否被某个已注册前缀覆盖。
-
-支持：
-
-- 插入 root / bypass / ignore 前缀。
-- 查询某个路径是否命中已注册前缀。
-- 插入父路径时替换已有子路径。
-- 已有父路径时拒绝插入子路径。
-- 删除某个前缀，并清理无用分支。
 
 示例：
 
 ```go
-tree.InsertTree("odds", []string{"f:", "ODDS&ENDS"})
-tree.Match([]string{"f:", "ODDS&ENDS", "hello", "README.md"}) // true
+F:\ODDS&ENDS\hello world\中文\日本語
 ```
+
+会被解析成：
+
+```go
+Path{
+    Kind: PathWinDrive,
+    Segments: []string{"f:", "ODDS&ENDS", "hello world", "中文", "日本語"},
+}
+```
+
+### `internal/root`
+
+负责 root 管理和 root tree。
+
+`RootTree` 只关心已经规范化后的 path segments。它维护的约束是：
+
+- root node 不能有子节点。
+- 无用分支会被删除。
+- 已有父 root 时拒绝插入子 root。
+- 插入父 root 时可以替换已有子 root。
+- namespace 来自 RootManager，不从路径最后一段推断。
+
+### `internal/bypass`
+
+负责 bypass rule 管理。
+
+bypass path 必须使用 namespace path，例如：
+
+```txt
+odds:secret
+```
+
+### `internal/list` / `internal/stat`
+
+目前还是占位包。下一步会开始实现只读文件能力。
+
+## 当前验证状态
+
+已经完成：
+
+- MCP server 能启动。
+- MCP tools 能注册。
+- `innerpath` 路径分类和解析。
+- Windows / Unix native path 构建分离。
+- root tree 插入、匹配、删除。
+- RootManager 基础实现。
+- bypass manager 基础实现。
+- path roots/bypass MCP handlers。
+- mockclient 协议测试入口。
+
+还没有完成：
+
+- `fs.stat`
+- `fs.list`
+- `fs.read`
+- `fs.search_text`
+- `fs.patch`
+- 持久化 roots/bypass
+- symlink 安全处理
+- 文件块索引和 block hash
+
+## Mock Client
+
+运行：
+
+```bash
+go run ./cmd/mockclient
+```
+
+默认情况下 mockclient 会启动当前源码：
+
+```bash
+go run .
+```
+
+如果要测试某个已编译好的 server，可以设置：
+
+```bash
+FILESYSTEM_MCP_SERVER="F:\ODDS&ENDS\filesystem\bin\fs.exe" go run ./cmd/mockclient
+```
+
+如果 mockclient 的 `tools/list` 里还显示旧工具名，例如 `roots/add`、`bypass/add`，说明它启动的是旧二进制，不是当前源码。
 
 ## 近期路线
 
-### 1. 完成路径解析
+1. 完成 `path/list`、roots、bypass 的 mockclient 验证。
+2. 实现 `fs.stat`。
+3. 实现 `fs.list`。
+4. 实现 `fs.read`，并开始做行号缓存。
+5. 接入 `rg` 做 `fs.search_text`。
+6. 再考虑 block index、block hash 和可恢复编辑。
 
-先完成 `internal/path`：
+## 开发原则
 
-- Windows absolute path -> segments
-- Unix absolute path -> segments
-- file URI -> native path -> segments
-- namespace path -> root + relative segments
-- root boundary check
-- bypass check
-
-### 2. 把 roots / bypass 迁入 PathManager
-
-当前 roots 和 bypass 仍在旧结构中。下一步要让它们统一经过 `PathManager`。
-
-### 3. 实现只读文件工具
-
-优先级：
-
-```txt
-fs.stat
-fs.list
-fs.read
-```
-
-这三个完成后，Codex 就可以用这个 MCP 稳定地查看项目，而不是依赖 shell。
-
-### 4. 再实现搜索
-
-```txt
-fs.search_names
-fs.search_text
-```
-
-搜索工具会让 agent 更快找到相关代码。
-
-### 5. 最后进入安全写入
-
-```txt
-fs.diff
-fs.patch
-```
-
-写入必须建立在可靠的路径系统、hash 冲突检测和 diff 预览之上。
-
-## 设计原则
-
-- 安全优先：任何路径都必须先通过 root 边界检查。
-- 先只读，后写入。
-- 路径模型先稳定，再做文件操作。
-- 工具返回结构化 JSON，不返回大段自然语言。
-- 大文件读取必须支持限制和截断。
-- 写入必须支持 hash 校验和可审计 diff。
-- 不在 filesystem MCP 里执行 shell 命令。
-- 不在早期版本实现递归删除。
-
-## 当前反思
-
-这次重构看起来让功能进度变慢了，但它是在修正地基。
-
-filesystem MCP 最危险的部分不是 “文件读不出来”，而是：
-
-- 把不该暴露的路径暴露出来。
-- 误判 root 边界。
-- 被 `..` 或 symlink 绕过。
-- bypass 规则没有真正生效。
-- 写入时覆盖用户未读到的新改动。
-
-因此，当前阶段把 path system 拆出来是合理的。
+- 先验证模型，再堆功能。
+- 先只读，再写入。
+- 不在 filesystem-mcp 里执行 shell。
+- 不解释 shell 特有路径表达式。
+- 工具 schema 的 `jsonschema` 描述要写给 AI 看。
+- 文件系统支持的合法文件名，不应该被 MCP 路径层弄坏。
+- 写入能力必须建立在 hash、diff 和冲突检测之上。
 
 ## 测试
 
@@ -281,20 +280,12 @@ filesystem MCP 最危险的部分不是 “文件读不出来”，而是：
 go test ./...
 ```
 
-当前重点测试：
+当前重点：
 
 ```bash
-go test ./internal/path
+go test ./internal/innerpath
+go test ./internal/root
 ```
-
-`prefixTree` 已有测试覆盖：
-
-- 插入并匹配。
-- 父前缀匹配子路径。
-- 已有父前缀时拒绝插入子前缀。
-- 插入父前缀时替换子前缀。
-- 删除唯一节点。
-- 删除一个分支时保留兄弟分支。
 
 ## License
 
